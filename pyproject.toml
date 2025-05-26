@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "playwright-mcp-python"
+version = "1.0.0"
+description = "Playwright MCP Server in Python"
+authors = [{name = "Camille Barboule", email = "camille.barboule@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "mcp>=1.0.0",
+    "playwright>=1.40.0",
+    "pydantic>=2.0.0",
+    "asyncio-compat>=0.1.0"
+]
+
+[project.scripts]
+playwright-mcp-python = "playwright_mcp.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0"
+]
+
+# src/playwright_mcp/__init__.py
+"""Playwright MCP Server - Python Implementation"""
+__version__ = "1.0.0"
