@@ -1,30 +1,23 @@
-"""Test configuration"""
-import pytest
-import asyncio
+"""Test configuration."""
+
+import pytest_asyncio
 from playwright_mcp.context import BrowserManager
 
 
-@pytest.fixture
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture
+@pytest_asyncio.fixture
 async def browser_manager():
-    """Create a browser manager for testing"""
+    """Create a browser manager for testing."""
     manager = BrowserManager(headless=True)
     yield manager
     await manager.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_page(browser_manager):
-    """Create a sample page for testing"""
+    """Create a sample page for testing."""
     tab = await browser_manager.new_tab()
-    await tab.page.set_content("""
+    await tab.page.set_content(
+        """
     <html>
         <head><title>Test Page</title></head>
         <body>
@@ -38,5 +31,6 @@ async def sample_page(browser_manager):
             <div id="content">Initial content</div>
         </body>
     </html>
-    """)
-    return tab
+    """
+    )
+    return tab, browser_manager

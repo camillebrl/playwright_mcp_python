@@ -3,22 +3,26 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "playwright-mcp-python"
+name = "playwright-mcp"
 version = "1.0.0"
 description = "Playwright MCP Server in Python"
 authors = [{name = "Camille Barboule", email = "camille.barboule@gmail.com"}]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",
     "playwright>=1.40.0",
     "pydantic>=2.0.0",
-    "asyncio-compat>=0.1.0"
+    "pytest-asyncio (>=1.0.0,<2.0.0)",
+    "flake8 (>=7.2.0,<8.0.0)",
+    "black (>=25.1.0,<26.0.0)",
+    "isort (>=6.0.1,<7.0.0)",
+    "mypy (>=1.15.0,<2.0.0)",
 ]
 
 [project.scripts]
-playwright-mcp-python = "playwright_mcp.cli:main"
+playwright-mcp = "playwright_mcp.cli:main" 
 
 [project.optional-dependencies]
 dev = [
@@ -28,6 +32,21 @@ dev = [
     "mypy>=1.0.0"
 ]
 
-# src/playwright_mcp/__init__.py
-"""Playwright MCP Server - Python Implementation"""
-__version__ = "1.0.0"
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+[tool.poetry.group.test.dependencies]
+pytest = "^8.3.5"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.poetry]
+include = ["src/playwright_mcp/py.typed"]

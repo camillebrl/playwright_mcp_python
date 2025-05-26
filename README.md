@@ -1,6 +1,6 @@
 # Playwright MCP Server - Python
 
-A Python implementation of the Playwright MCP (Model Context Protocol) server that provides browser automation capabilities.
+A Python implementation of the [Playwright MCP server](https://github.com/microsoft/playwright-mcp).
 
 ## Features
 
@@ -13,18 +13,10 @@ A Python implementation of the Playwright MCP (Model Context Protocol) server th
 
 ## Installation
 
-### From PyPI (when published)
-```bash
-pip install playwright-mcp-python
-playwright install  # Install browser binaries
-```
-
-### From Source
 ```bash
 git clone <repository>
-cd playwright-mcp-python
-pip install -e .
-playwright install
+make install
+make test
 ```
 
 ## Usage
@@ -37,10 +29,11 @@ Add to your MCP client configuration:
   "mcpServers": {
     "playwright-python": {
       "command": "playwright-mcp-python",
-      "args": ["--headless", "--browser=chromium"]
+      "args": ["--headless"]
     }
   }
 }
+
 ```
 
 ### Command Line Options
@@ -76,35 +69,8 @@ Add to your MCP client configuration:
 - `browser_evaluate`: Execute JavaScript
 - `browser_tab_*`: Tab management
 
-## Development
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Format code
-black src/
-
-# Type checking
-mypy src/
-```
-
-## Example Usage
-
-```python
-# The server automatically handles browser lifecycle
-# Tools can be called via MCP protocol
-
-# Example tool calls:
-# browser_navigate: {"url": "https://example.com"}
-# browser_click: {"selector": "button.submit"}
-# browser_screenshot: {"full_page": true}
-# browser_get_text: {"selector": ".content"}
-```
+# A corriger:
+⚠️ Quand l'agent appelle "browser_screenshot", ça retourne : `PlaywrightMCPServer._setup_handlers.<locals>.handle_call_tool() takes 1 positional argument but 2 were given`
 
 ## License
-
 MIT License

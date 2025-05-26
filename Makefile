@@ -1,109 +1,92 @@
-PHONY: install test lint format clean build publish
+.PHONY: install test lint format clean build publish dev docker-build docker-run
 
-# Install dependencies
+# Variables
+POETRY := poetry
+
+# Install dependencies and browsers
 install:
-	pip install -e ".[dev]"
-	playwright install
+	$(POETRY) install --with dev
+	$(POETRY) run playwright install
+	sudo apt-get update && sudo apt-get install -y libavif13
 
-# Run tests
-test:
-	pytest tests/ -v
+# Run tests (with browser check)
+test: check-browsers
+	$(POETRY) run pytest tests/ -v --tb=short
 
-# Run linting
-lint:
-	flake8 src/
-	mypy src/
+# Check if browsers are installed
+check-browsers:
+	@echo "Checking if Playwright browsers are installed..."
+	@$(POETRY) run playwright --version > /dev/null 2>&1 || (echo "Installing Playwright browsers..." && $(POETRY) run playwright install)
+
 
 # Format code
 format:
-	black src/ tests/
-	isort src/ tests/
+	$(POETRY) run black --line-length 79 src/
+	$(POETRY) run isort src/
+	$(POETRY) run black --line-length 79 src/
+	$(POETRY) run isort src/
+	ruff format src/
+	ruff check src/ --ignore D107 --fix --unsafe-fixes
+	ruff format tests/
+	ruff check tests/ --ignore D107 --fix --unsafe-fixes
+	$(POETRY) run mypy tests/
+	$(POETRY) run mypy src/
 
 # Clean build artifacts
 clean:
 	rm -rf build/
 	rm -rf dist/
 	rm -rf *.egg-info/
-	find . -type d -name __pycache__ -delete
+	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
+	find . -type f -name "*.pyo" -delete
 
 # Build package
 build: clean
-	python -m build
+	$(POETRY) build
 
 # Publish to PyPI
 publish: build
-	python -m twine upload dist/*
+	$(POETRY) publish
 
 # Run development server
 dev:
-	python -m playwright_mcp.cli --headless
+	$(POETRY) run python -m playwright_mcp.cli --headless
 
-# Install playwright browsers
+# Install playwright browsers only
 install-browsers:
-	playwright install
+	$(POETRY) run playwright install
 
-# Run type checking
-typecheck:
-	mypy src/
-
-# Docker related commands
-docker-build:
-	docker build -t playwright-mcp-python .
-
-docker-run:
-	docker run -it --rm playwright-mcp-python
-
-# Dockerfile
-FROM python:3.11-slim
+# Install only chromium (faster for testing)
+install-chromium:
+	$(POETRY) run playwright install chromium
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+install-system-deps:
+	sudo apt-get update && sudo apt-get install -y libavif13
 
-# Set working directory
-WORKDIR /app
+# Development helpers - install everything needed for development
+dev-install: install
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Test with coverage
+test-cov: check-browsers
+	$(POETRY) run pytest tests/ -v --cov=src/playwright_mcp --cov-report=html --cov-report=term
 
-# Install Playwright browsers
-RUN playwright install --with-deps chromium
+# Check code quality
+quality: lint typecheck test
 
-# Copy application code
-COPY . .
+# Full CI pipeline
+ci: install quality build
 
-# Install the package
-RUN pip install -e .
+# Quick setup for new developers
+setup: install
+	@echo "✅ Setup complete! Run 'make test' to run tests."
 
-# Create non-root user
-RUN useradd -m -u 1000 playwright && \
-    chown -R playwright:playwright /app
-USER playwright
+# Install everything (dependencies + browsers + system deps)
+install-all: install install-system-deps
+	@echo "✅ Complete installation finished!"
 
-# Expose port (if running HTTP server)
-EXPOSE 8000
-
-# Set entrypoint
-ENTRYPOINT ["playwright-mcp-python"]
-CMD ["--headless", "--browser=chromium"]
-
-# requirements.txt
-mcp>=1.0.0
-playwright>=1.40.0
-pydantic>=2.0.0
-
-# requirements-dev.txt
--r requirements.txt
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-black>=23.0.0
-mypy>=1.0.0
-flake8>=6.0.0
-isort>=5.12.0
-twine>=4.0.0
-build>=0.10.0
+# Reinstall browsers (useful if browsers are corrupted)
+reinstall-browsers:
+	$(POETRY) run playwright uninstall
+	$(POETRY) run playwright install
