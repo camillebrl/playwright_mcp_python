@@ -5,9 +5,9 @@ POETRY := poetry
 
 # Install dependencies and browsers
 install:
-	$(POETRY) install --with dev
+	$(POETRY) install
 	$(POETRY) run playwright install
-	sudo apt-get update && sudo apt-get install -y libavif13
+	sudo apt-get update && sudo apt-get install -y libavif13 libwoff1 libharfbuzz-icu0
 
 # Run tests (with browser check)
 test: check-browsers
@@ -61,10 +61,6 @@ install-browsers:
 install-chromium:
 	$(POETRY) run playwright install chromium
 
-# Install system dependencies
-install-system-deps:
-	sudo apt-get update && sudo apt-get install -y libavif13
-
 # Development helpers - install everything needed for development
 dev-install: install
 
@@ -72,19 +68,9 @@ dev-install: install
 test-cov: check-browsers
 	$(POETRY) run pytest tests/ -v --cov=src/playwright_mcp --cov-report=html --cov-report=term
 
-# Check code quality
-quality: lint typecheck test
-
-# Full CI pipeline
-ci: install quality build
-
 # Quick setup for new developers
 setup: install
 	@echo "✅ Setup complete! Run 'make test' to run tests."
-
-# Install everything (dependencies + browsers + system deps)
-install-all: install install-system-deps
-	@echo "✅ Complete installation finished!"
 
 # Reinstall browsers (useful if browsers are corrupted)
 reinstall-browsers:

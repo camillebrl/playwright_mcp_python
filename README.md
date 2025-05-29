@@ -14,10 +14,11 @@ A Python implementation of the [Playwright MCP server](https://github.com/micros
 ## Installation
 
 ```bash
-git clone <repository>
+git clone https://github.com/camillebrl/playwright_mcp_python.git
 make install
 make test
 ```
+If all tests passed, you can now use this MCP server.
 
 ## Usage
 
@@ -33,7 +34,22 @@ Add to your MCP client configuration:
     }
   }
 }
+```
 
+Or find root for playwright-mcp-python:
+```sbatch
+which playwright-mcp-python
+```
+And add this root as command directly:
+```json
+{
+  "mcpServers": {
+    "playwright-python": {
+      "command": "/home/camil/.cache/pypoetry/virtualenvs/playwright-mcp-q9z6m5j4-py3.10/bin/playwright-mcp",
+      "args": ["--headless"]
+    }
+  }
+}
 ```
 
 ### Command Line Options
@@ -68,9 +84,6 @@ Add to your MCP client configuration:
 - `browser_scroll`: Scroll page
 - `browser_evaluate`: Execute JavaScript
 - `browser_tab_*`: Tab management
-
-# A corriger:
-⚠️ Quand l'agent appelle "browser_screenshot", ça retourne : `PlaywrightMCPServer._setup_handlers.<locals>.handle_call_tool() takes 1 positional argument but 2 were given`
 
 ## License
 MIT License

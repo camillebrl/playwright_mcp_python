@@ -5,7 +5,7 @@ import sys
 
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.types import CallToolRequest, CallToolResult, EmbeddedResource, ImageContent, TextContent
+from mcp.types import ImageContent, TextContent
 
 from .context import BrowserManager
 from .tools import ToolRegistry
@@ -123,26 +123,45 @@ class PlaywrightMCPServer:
                 return []
 
         @self.server.call_tool()
-        async def handle_call_tool(request: CallToolRequest) -> CallToolResult:
-            """Execute a tool."""
-            logger.info(f"🔧 handle_call_tool called: {request.params.name}")
+        async def handle_call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent]:
+            """Execute a tool.
+
+            The MCP decorator expects this signature:
+            - name: str - The name of the tool to execute
+            - arguments: dict - The arguments for the tool
+
+            Returns a list of content items (not CallToolResult).
+            The decorator handles wrapping in CallToolResult and error handling.
+            """
+            logger.info(f"🔧 handle_call_tool called: {name}")
+            logger.debug(f"📋 Arguments: {arguments}")
 
             try:
-                result = await self.tool_registry.execute_tool(request.params.name, request.params.arguments or {})
+                # Execute the tool using the registry
+                result = await self.tool_registry.execute_tool(name, arguments)
 
-                # Convert our ToolResult content to the expected MCP types
-                mcp_content: list[TextContent | ImageContent | EmbeddedResource] = [
-                    item for item in result.content if isinstance(item, TextContent | ImageContent)
-                ]
+                # Log the result status
+                if result.is_error:
+                    logger.warning(f"⚠️ Tool {name} returned an error")
+                else:
+                    logger.info(f"✅ Tool {name} executed successfully")
 
-                return CallToolResult(content=mcp_content, isError=result.is_error)
+                # Return the content list directly
+                # The MCP decorator will wrap this in CallToolResult
+                return result.content
 
             except Exception as e:
-                logger.exception(f"Error executing tool {request.params.name}")
-                return CallToolResult(
-                    content=[TextContent(type="text", text=f"Error: {str(e)}")],
-                    isError=True,
-                )
+                # Log the full exception
+                logger.exception(f"❌ Error executing tool {name}: {str(e)}")
+
+                # Return error as a list with a single TextContent
+                # The MCP decorator will set isError=True because an exception was raised
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Error executing tool '{name}': {str(e)}",
+                    )
+                ]
 
     async def run(self, read_stream, write_stream) -> None:
         """Run the MCP server."""
