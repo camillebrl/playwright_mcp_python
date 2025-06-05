@@ -1,8 +1,10 @@
 """Capture and extraction tools."""
 
+import asyncio
 import base64
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 from mcp.types import ImageContent, TextContent
 
@@ -188,7 +190,41 @@ class CaptureTools(BaseToolSet):
                     },
                     "required": ["filename"],
                 },
-                execute=self._download_pdf,
+                execute=self._download_pdf_on_page,
+            ),
+            "browser_download_pdf_with_curl": ToolInfo(
+                name="browser_download_pdf_with_curl",
+                description="Download a PDF file from a specific URL using curl for maximum compatibility",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "Direct URL of the PDF file to download",
+                        },
+                        "folder": {
+                            "type": "string",
+                            "description": "Destination folder path (default: 'downloads')",
+                            "default": "downloads",
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": "Custom filename for the downloaded PDF (optional, will auto-generate if not provided)",
+                        },
+                        "follow_redirects": {
+                            "type": "boolean",
+                            "description": "Whether to follow HTTP redirects (default: true)",
+                            "default": True,
+                        },
+                        "max_time": {
+                            "type": "integer",
+                            "description": "Maximum download time in seconds before timeout (default: 300)",
+                            "default": 300,
+                        },
+                    },
+                    "required": ["url"],
+                },
+                execute=self._download_pdf_with_curl,
             ),
         }
 
@@ -464,80 +500,252 @@ class CaptureTools(BaseToolSet):
                 is_error=True,
             )
 
-    async def _download_pdf(self, args: dict[str, Any]) -> ToolResult:
-        """Download page as PDF."""
+    async def _download_pdf_on_page(self, args: dict[str, Any]) -> ToolResult:
+        """Trouve et télécharge tous les PDFs présents dans la page HTML."""
         try:
             tab = await self.browser_manager.get_current_tab()
-
-            # Get parameters
+            
+            # Paramètres
             folder = args.get("folder", "downloads")
-            filename = args["filename"]
-            format_size = args.get("format", "A4")
-            landscape = args.get("landscape", False)
-            scale = args.get("scale", 1.0)
-            display_header_footer = args.get("display_header_footer", False)
-            print_background = args.get("print_background", True)
-            margin = args.get("margin", {})
-
-            # Create folder if it doesn't exist
+            
+            # Créer le dossier si nécessaire
             folder_path = Path(folder)
             folder_path.mkdir(parents=True, exist_ok=True)
-
-            # Ensure filename has .pdf extension
-            if not filename.endswith(".pdf"):
-                filename += ".pdf"
-
-            # Full file path
-            file_path = folder_path / filename
-
-            # Prepare PDF options
-            pdf_options: dict[str, Any] = {
-                "path": str(file_path),
-                "format": format_size,
-                "landscape": landscape,
-                "scale": scale,
-                "display_header_footer": display_header_footer,
-                "print_background": print_background,
-            }
-
-            # Add margins if provided
-            if margin:
-                pdf_options["margin"] = {
-                    "top": margin.get("top", "0"),
-                    "right": margin.get("right", "0"),
-                    "bottom": margin.get("bottom", "0"),
-                    "left": margin.get("left", "0"),
+            
+            # Rechercher tous les liens PDF dans la page
+            pdf_links = await tab.page.evaluate("""
+                () => {
+                    const links = [];
+                    
+                    // Chercher dans les liens <a>
+                    document.querySelectorAll('a[href]').forEach(link => {
+                        const href = link.href;
+                        if (href.toLowerCase().includes('.pdf') || 
+                            href.toLowerCase().includes('pdf') ||
+                            link.textContent.toLowerCase().includes('pdf')) {
+                            links.push({
+                                url: href,
+                                text: link.textContent.trim(),
+                                type: 'link'
+                            });
+                        }
+                    });
+                    
+                    // Chercher dans les embed/object
+                    document.querySelectorAll('embed[src], object[data]').forEach(embed => {
+                        const src = embed.src || embed.data;
+                        if (src && src.toLowerCase().includes('.pdf')) {
+                            links.push({
+                                url: src,
+                                text: embed.title || 'PDF embed',
+                                type: 'embed'
+                            });
+                        }
+                    });
+                    
+                    // Chercher dans les iframes
+                    document.querySelectorAll('iframe[src]').forEach(iframe => {
+                        const src = iframe.src;
+                        if (src && src.toLowerCase().includes('.pdf')) {
+                            links.push({
+                                url: src,
+                                text: iframe.title || 'PDF iframe',
+                                type: 'iframe'
+                            });
+                        }
+                    });
+                    
+                    return links;
                 }
-
-            # Generate PDF
-            await tab.page.pdf(**pdf_options)
-
-            # Get current page info
-            page_title = await tab.get_title()
-            page_url = tab.page.url
-
+            """)
+            
+            if not pdf_links:
+                return ToolResult(
+                    content=[TextContent(type="text", text="❌ Aucun PDF trouvé sur cette page")]
+                )
+            
+            downloaded_files = []
+            failed_downloads = []
+            
+            # Télécharger chaque PDF
+            for i, pdf_info in enumerate(pdf_links):
+                try:
+                    url = pdf_info['url']
+                    
+                    # Résoudre l'URL relative si nécessaire
+                    if not url.startswith(('http://', 'https://')):
+                        base_url = tab.page.url
+                        url = urljoin(base_url, url)
+                    
+                    # Générer un nom de fichier
+                    filename = args.get("filename_pattern", f"pdf_{i+1}.pdf")
+                    if "{index}" in filename:
+                        filename = filename.replace("{index}", str(i+1))
+                    if "{title}" in filename:
+                        safe_title = "".join(c for c in pdf_info['text'][:50] if c.isalnum() or c in (' ', '-', '_')).strip()
+                        filename = filename.replace("{title}", safe_title or f"pdf_{i+1}")
+                    
+                    if not filename.endswith('.pdf'):
+                        filename += '.pdf'
+                    
+                    file_path = folder_path / filename
+                    
+                    # Télécharger le PDF
+                    response = await tab.page.goto(url)
+                    if response and response.ok:
+                        pdf_content = await response.body()
+                        
+                        with open(file_path, 'wb') as f:
+                            f.write(pdf_content)
+                        
+                        downloaded_files.append({
+                            'path': str(file_path),
+                            'url': url,
+                            'title': pdf_info['text'],
+                            'type': pdf_info['type']
+                        })
+                    else:
+                        failed_downloads.append(f"{url} - Erreur de téléchargement")
+                        
+                except Exception as e:
+                    failed_downloads.append(f"{url} - {str(e)}")
+            
+            # Retourner à la page originale
+            await tab.page.go_back()
+            
+            # Préparer le message de résultat
+            result_text = f"📄 {len(downloaded_files)} PDF(s) téléchargé(s):\n\n"
+            
+            for pdf in downloaded_files:
+                result_text += f"✅ {pdf['title'][:50]}...\n"
+                result_text += f"   📁 {pdf['path']}\n"
+                result_text += f"   🔗 {pdf['url']}\n\n"
+            
+            if failed_downloads:
+                result_text += f"\n❌ {len(failed_downloads)} échec(s):\n"
+                for failure in failed_downloads:
+                    result_text += f"   • {failure}\n"
+            
             return ToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text=f"📄 PDF successfully downloaded:\n"
-                        f"📁 Path: {file_path}\n"
-                        f"📑 Title: {page_title}\n"
-                        f"🔗 URL: {page_url}\n"
-                        f"📐 Format: {format_size} {'(landscape)' if landscape else '(portrait)'}",
-                    )
-                ]
+                content=[TextContent(type="text", text=result_text)]
             )
-
+            
         except Exception as e:
             import logging
             import traceback
-
+            
             logger = logging.getLogger(__name__)
             logger.error(f"PDF download error: {str(e)}")
             logger.error(traceback.format_exc())
-
+            
             return ToolResult(
-                content=[TextContent(type="text", text=f"❌ PDF download failed: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ Erreur lors du téléchargement des PDFs: {str(e)}")],
+                is_error=True,
+            )
+
+    async def _download_pdf_with_curl(self, args: dict[str, Any]) -> ToolResult:
+        """Télécharge un PDF en utilisant curl."""
+        try:
+            import subprocess
+            import shlex
+            
+            # Paramètres requis
+            url = args["url"]
+            
+            # Paramètres optionnels
+            folder = args.get("folder", "downloads")
+            filename = args.get("filename")
+            follow_redirects = args.get("follow_redirects", True)
+            max_time = args.get("max_time", 300)  # 5 minutes par défaut
+            
+            # Créer le dossier si nécessaire
+            folder_path = Path(folder)
+            folder_path.mkdir(parents=True, exist_ok=True)
+            
+            # Générer le nom de fichier si non fourni
+            if not filename:
+                from urllib.parse import urlparse, unquote
+                import os
+                parsed_url = urlparse(url)
+                filename = unquote(os.path.basename(parsed_url.path))
+                if not filename or not filename.endswith('.pdf'):
+                    import time
+                    filename = f"curl_download_{int(time.time())}.pdf"
+            
+            # S'assurer que le fichier a l'extension .pdf
+            if not filename.endswith('.pdf'):
+                filename += '.pdf'
+            
+            file_path = folder_path / filename
+            
+            # Construire la commande curl
+            curl_cmd = [
+                'curl',
+                '--silent',
+                '--show-error',
+                '--fail',
+                '--location' if follow_redirects else '--no-location',
+                '--max-time', str(max_time),
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                '--header', 'Accept: application/pdf,application/octet-stream,*/*',
+                '--header', 'Accept-Language: fr-FR,fr;q=0.9,en;q=0.8',
+                '--output', str(file_path),
+                url
+            ]
+            
+            # Exécuter la commande curl
+            process = await asyncio.create_subprocess_exec(
+                *curl_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # Vérifier que le fichier existe et n'est pas vide
+                if file_path.exists() and file_path.stat().st_size > 0:
+                    file_size = file_path.stat().st_size
+                    file_size_mb = file_size / (1024 * 1024)
+                    
+                    return ToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=f"📄 PDF téléchargé avec curl:\n"
+                                f"📁 Fichier: {file_path}\n"
+                                f"🔗 URL: {url}\n"
+                                f"📊 Taille: {file_size_mb:.2f} MB\n"
+                                f"✅ Téléchargement réussi"
+                            )
+                        ]
+                    )
+                else:
+                    return ToolResult(
+                        content=[TextContent(type="text", text="❌ Le fichier téléchargé est vide ou inexistant")],
+                        is_error=True
+                    )
+            else:
+                error_msg = stderr.decode('utf-8') if stderr else "Erreur inconnue"
+                return ToolResult(
+                    content=[TextContent(type="text", text=f"❌ Erreur curl (code {process.returncode}): {error_msg}")],
+                    is_error=True
+                )
+        
+        except subprocess.CalledProcessError as e:
+            return ToolResult(
+                content=[TextContent(type="text", text=f"❌ Erreur de processus curl: {str(e)}")],
+                is_error=True
+            )
+        except Exception as e:
+            import logging
+            import traceback
+            
+            logger = logging.getLogger(__name__)
+            logger.error(f"Curl PDF download error: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            return ToolResult(
+                content=[TextContent(type="text", text=f"❌ Erreur lors du téléchargement avec curl: {str(e)}")],
                 is_error=True,
             )

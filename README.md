@@ -50,6 +50,21 @@ And add this root as command directly:
     }
   }
 }
+
+{
+  "mcpServers": {
+    "playwright-python": {
+      "command": "uvx",
+      "args": [
+        "--python=3.10",
+        "--from=git+https://github.com/camillebrl/playwright_mcp_python.git",
+        "playwright_mcp",
+        "--headless"
+      ]
+    }
+  }
+}
+
 ```
 
 ### Command Line Options
